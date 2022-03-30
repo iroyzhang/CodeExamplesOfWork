@@ -1,0 +1,180 @@
+# 臃肿控制器瘦身方案
+## 控制器瘦身总结
+### 总体思路
+1. 判断是否需要瘦身，可以简单判断文件代码行数（超过500行大概就很臃肿了）来确定
+2. 理清楚控制器职责，控制器臃肿根本原因在于承担了本不属于它的其他职责
+3. 剥离出非控制器职责，交给其他对象（可以分给现有对象或者新建对象）处理
+### 瘦身技巧
+1. 剥离视图布局代码（视图层级非常多的情况下），可以创建一个容器视图专门负责，后续修改布局和层级也比较方便
+2. 剥离出复杂的视图逻辑，可以创建一个专有视图类
+3. 剥离数据源（譬如UITableViewDataSource）到独立的类，后期也可以方便复用
+4. 拆分更多更小的MVC，譬如如果一个控制器需要频繁对某子视图进行配置和操作，可以为该子视图创建控制器专门管理它
+5. 剥离视图控制器展示或者消失逻辑到中介者（类似导航器）
+6. 查看类实现了哪些代理，每一个代理就是一个职责，看看是否承担了过多职责，如果太多，可以拆分到其他模块或者新的独立类
+7. 剥离数据请求（网络请求和本地数据库请求）逻辑，控制器不应该负责数据请求，可以创建单独的业务Manager来处理
+8. 剥离数据加工业务逻辑，可以创建对应的服务类来处理
+9. 查看是否存在与上下文无关的代码，如果存在，可以提取出来作为工具方法
+10. 清理无用的属性和方法
+11. 擅用设计模式，譬如工厂模式、装饰、策略模式、命令模式、单例模式、备忘录模式都可以进一步瘦身
+
+## 具体案例
+### 哪些问题 
+#### 承担过多代理职责: 
+从实现接口来看，有差不多30个代理: 
+代理实现代码量占了整个文件的一半以上，这是造成主控臃肿最大的原因。
+[image:8AE28171-F489-4E0E-A780-68C1C431CE60-24480-00000E554A83057C/page1image50692928.png]
+#### 管理的对象过多 
+从实现文件来看，主控持有接近40个对象，其中包含不同类型，有控制器、服务、视图、部 分数据，如此以来管理这些对象的代码会非常多。 
+#### 承担太多控制业务 
+主控目前作为中心控制器，要根据需要随机组合或者刷新许多视图以及其他业务。
+#### 存在一些可抽离出来的代码 
+自由模式的主控和简单模式的主控有许多重合的代码，譬如注册通知方法。 
+
+### 分析问题
+#### 代理可以拆分成这几类: 
+1. 播放器代理
+2. 水印、贴纸、效果、文本、音频等功能代理
+3. menuBar、playerBottomBar等视图代理
+4. 轨道轴(包括添加视频控制器)、元素轴(元素选择控制器)、音乐轴等控制器代理 
+5. 付费、撤销重做、平面服务等代理
+6. 导出代理
+7. 其他(譬如GDVEInteractionUIProtocol、GDVEContainerVCProtocol) 
+可以看出，大部分代理都不应该由主控来承担，应该提取出来。
+管理对象过多问题分析 
+#### 对象可以拆分成这几类:
+1. 视频轴、元素轴、音乐轴等控制器
+2. 水印、贴纸、效果、文本、音频等功能控制器
+3. 导出、预览等控制器
+4. headerView、playerView、menuBar、backSelectionView等视图 
+5. 播放器
+6. 配置、时间轴等数据结构
+7. 各种服务 
+这么多对象零零散散分布在主控，主控需要负责它们的初始化和调整，也使得主控过于臃肿，也可以看到对这些对象没有做进一步的归纳整理。
+#### 承担太多控制业务问题分析
+由于主控没有对所有的控制器进行统一的管理，一旦数据改变或者发生事件会很低效的调整所有相关的控制器，一方面是存在冗余调用，另一位方面是增加很多判断代码。未来如果继续扩展功能，那控制业务会越来越复杂且非常难以维护，所以最好要把一些控制权下放给对应的模块。
+#### 存在一些可抽离出来的代码分析
+简单模式的主控很多代码都是从自由模式的代码拷贝过去的，这类代码有相当一部分是可以复用的，可以抽出来。
+
+### 解决方案 
+#### 整体方向 
+给主控一个清楚的定位，去中心化，拆分更小的模块，把管理权、控制权和代理劝交拆分给
+对应的模块，把可以复用的方法抽取来，让更小的模块监听全局事件自动刷新。
+#### 主控定位 
+1. 视图容器，提供底层视图以承载各模块的视图 
+2. 管理各模块控制器并协调各模块关联事件 
+#### 拆分方案 
+根据视觉效果可以分为两种类型，一种是常驻视图，另一种是模态视图。
+常驻视图有以下几类:
+1. 头部视图
+2. 画布视图
+3. 播放器控制视图
+4. 进度条
+5. 轨道轴(视频、元素、音乐)视图 
+6. 菜单栏视图 
+这些视图都应该由对应的控制器管理，成为更小的MVC，并由控制器担任它们的代理。 
+模态试图有以下几类:
+1. 水印、贴纸、文本、音频等功能面板 
+2. 导出等视图 
+对于第1类都属于效果处理面板，可以创建一个容器类来统一管理它们;第2类视图可以创建对应的控制器来管理。 
+#### 全局事件控制与监听 
+由于需要把控制权下放给不同模块，不应该由主控来监听全局事件了。播放器事件、撤销重
+做事件可以设计成观察者模式，支持多观察者模式。对于播放器控制权利也可以进行下方，开放控制接口。
+#### 选中事件处理 
+指的是选中和取消某个元素事件，从目前的业务看来，许多视图都需要监听该事件进行调整。
+目前由GDVEElementBoxViewController管理被选中的元素，应该要提前出来成为成一个管理器， 供任意模块监听和修改。 
+#### 各服务的管理 
+1. 为减少在许多模块重复创建服务的代码，可以创建一个ServicesProvider这样的对象来 统一创建服务 
+2. 创建服务代理对象，让它来成为各服务的代理 
+
+### 其他 
+1. 控制器不要负责视图布局和样式等处理，可以单独创建一个特定的视图，把代码放到视 图里，譬如把主控与UI设置相关的代码都放到特定主控视图里，后期还可以方便修改 布局 
+2. 有一些视图没有对应的控制器，应该为它们创建对应的控制器，让控制器来管理它们 
+3. GDVEPaymentServiceDelegate、GDVEUndoOperationServiceDelegate等完全可 
+以抽出来复用 
+4. 注册和处理通知相关代码也是重复的，可以单独创建一个管理器处理，也方便复用 
+5. 抽出导出相关代码 
+
+### 落地方案 
+#### 播放器管理器 
+新建GDVTVideoPlayerManager，统一管理播放器功能: 
+  * 提供控制播放器的接口
+  * 提供外部监听播放器状态接口
+#### 选中状态管理器 
+新建GDVTSelectionManager，选择状态管理器功能: 
+  * 提供选中元素接口
+  * 提供外部监听选中状态接口
+#### 撤销重做管理器 
+新建GDVTUndoManager，撤销重做管理器功能: 
+  * 提供撤销重做接口
+  * 提供外部监听撤销重做状态接口
+#### 头部视图模块 
+新建GDVEHeaderViewContrller，头部视图控制器 
+管理: 
+* GDVEHeaderView 
+* GDVideoEditBackSelectViewContrller 
+* GDVEExportSettingViewController 
+功能: 
+* 承担GDVEHeaderView部分事件 
+* 担任GDVEExportSettingViewControllerDelegate 
+新建GDVideoEditBackSelectViewContrller，返回选择视图控制器 
+管理: 
+GDVideoEditBackSelectView 
+功能: 
+担任GDVideoEditBackSelectViewDelegate 
+#### 画布视图模块 
+新建GDVTCanvasViewController，画布控制器 
+管理: 
+* GDVEPlayerView 
+* GDVEElementBoxViewController 
+功能: 
+担任GDVEElementBoxViewControllerDelegate 
+#### 播放器控制视图模块 
+新建GDVEPlayerControlViewController，播放器控制视图控制器 
+管理: 
+* GDVEPlayerControlView 
+* GDVEPreviewViewController 
+功能: 
+* 担任GDVEPlayerBottomViewDelegate 
+* 担任GDVEPreviewViewControllerDelegate 
+#### 轨道轴模块 
+新建GDVTTrackViewController，轨道视图控制器 
+管理: 
+* GDVTVideoTrackViewController，视频轨道控制器
+* GDVTVideoTrackAddViewController，视频轨道添加控制器 
+* GDVTVideoTrackEditViewController，视频轨道编辑控制器 
+* GDVTElementTrackViewController，元素轨道控制器 
+* GDVTElementTypeSelectionViewController，元素类型选择控制器 
+* GDVTMusicMenuViewController，音乐菜单控制器 
+功能: 
+* 担任GDVTVideoTrackViewControllerDelegate 
+* 担任GDVTVideoTrackAddViewControllerDelegate 
+* 担任GDVTVideoTrackEditViewControllerDelegate
+* 担任GDVTElementTrackViewControllerDelegate 
+* 担任GDVTElementTypeSelectionViewControllerDelegate 
+* 担任GDVTMusicMenuViewControllerDelegate 
+#### 菜单栏模块 
+新建GDVTRootMenuBarController，菜单栏控制器: 
+管理: 
+GDVTRootMenuBar，菜单视图 
+功能: 
+担任GDVTRootMenuBarDelegate 
+#### 功能控制器 
+新建GDVTFeatureController，作为水印、贴纸、文本、效果代理，并在数据变更时通知外部刷新。
+功能: 
+* GDVEStickerViewControllerDelegate 
+* GDVEWatermarkViewControllerDelegate 
+* GDVETextViewControllerDelegate
+* GDVEEffectEditViewControllerDelegate 
+#### 功能导航控制器 
+新建GDVTFeatureNavigationController，负责导航水印、贴纸、文本、效果面板 
+#### 平面元素控制器 
+新建GDVEPannelElementContrller，担任GDVEPannelElementServiceDelegate 
+#### 导出控制器 
+新建GDVEExportController，担任GDVEExportViewControllerDelegate，同时负责展示导出视图 
+#### 付费控制器 
+新建GDVEPaymentController，担任GDVEPaymentServiceDelegate，同时处理部分付费】
+业务逻辑 
+#### 工具方法 
+抽出以下方法以复用: 
+* storeCoverFrame:finishBlock，退出及合成视频成功时会调用
+* showTimeExceedPopView:confirmText:exportBlock，弹出导出友情提醒 
